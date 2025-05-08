@@ -10,7 +10,176 @@ git clone https://github.com/sudo190/inste19.git
 
 
 cd inste19
+nano inste19.sh
+paste this
 
+
+#!/usr/bin/env python3
+import os
+import sys
+import requests
+import time
+from datetime import datetime
+from dotenv import load_dotenv
+import json
+import platform
+
+class InstagramMonitor:
+    def _init_(self):
+        self.load_config()
+        self.base_url = "https://graph.instagram.com/v18.0"
+        self.session = requests.Session()
+        self.session.headers.update({'User-Agent': 'InstagramMonitor/1.0'})
+        self.results = {
+            'metadata': {
+                'script_version': '1.0',
+                'platform': platform.platform(),
+                'python_version': platform.python_version(),
+                'start_time': self.get_timestamp(),
+                'end_time': None,
+                'duration_seconds': None
+            },
+            'statistics': {
+                'total_requests': 0,
+                'successful_requests': 0,
+                'failed_requests': 0,
+                'average_latency': 0,
+                'total_latency': 0
+            },
+            'requests': []
+        }
+
+    def load_config(self):
+        """Load configuration from .env file with validation"""
+        try:
+            load_dotenv()
+            self.access_token = os.getenv('INSTA_ACCESS_TOKEN')
+            self.client_id = os.getenv('INSTA_CLIENT_ID')
+            
+            if not all([self.access_token, self.client_id]):
+                raise ValueError("Missing required environment variables")
+                
+        except Exception as e:
+            self.exit_with_error(f"Configuration error: {str(e)}")
+
+    def get_timestamp(self):
+        return datetime.now().isoformat()
+
+    def exit_with_error(self, message, code=1):
+        """Print error message and exit with status code"""
+        print(f"ERROR: {message}", file=sys.stderr)
+        sys.exit(code)
+
+    def make_api_request(self, endpoint, params=None):
+        """Make API request with comprehensive error handling"""
+        params = params or {}
+        params['access_token'] = self.access_token
+        url = f"{self.base_url}/{endpoint}"
+        
+        request_data = {
+            'endpoint': endpoint,
+            'timestamp': self.get_timestamp(),
+            'success': False,
+            'latency': 0
+        }
+
+        try:
+            start_time = time.time()
+            response = self.session.get(url, params=params, timeout=10)
+            latency = time.time() - start_time
+
+            self.results['statistics']['total_requests'] += 1
+            self.results['statistics']['total_latency'] += latency
+            request_data['latency'] = latency
+
+            if response.status_code == 200:
+                self.results['statistics']['successful_requests'] += 1
+                request_data['success'] = True
+                request_data['response'] = response.json()
+            else:
+                self.results['statistics']['failed_requests'] += 1
+                request_data['error'] = {
+                    'code': response.status_code,
+                    'message': response.text
+                }
+
+        except requests.exceptions.RequestException as e:
+            self.results['statistics']['failed_requests'] += 1
+            request_data['error'] = {
+                'type': type(e)._name_,
+                'message': str(e)
+            }
+
+        self.results['requests'].append(request_data)
+        return request_data
+
+    def calculate_statistics(self):
+        """Calculate final statistics"""
+        total = self.results['statistics']['total_requests']
+        if total > 0:
+            self.results['statistics']['average_latency'] = (
+                self.results['statistics']['total_latency'] / total
+            )
+        
+        self.results['metadata']['end_time'] = self.get_timestamp()
+        start = datetime.fromisoformat(self.results['metadata']['start_time'])
+        end = datetime.fromisoformat(self.results['metadata']['end_time'])
+        self.results['metadata']['duration_seconds'] = (end - start).total_seconds()
+
+    def save_results(self, filename='instagram_monitor_results.json'):
+        """Save results to JSON file with error handling"""
+        try:
+            with open(filename, 'w') as f:
+                json.dump(self.results, f, indent=2)
+            print(f"Results saved to {filename}")
+        except IOError as e:
+            self.exit_with_error(f"Failed to save results: {str(e)}")
+
+    def print_summary(self):
+        """Print user-friendly summary"""
+        stats = self.results['statistics']
+        print("\n=== Monitoring Summary ===")
+        print(f"Total requests: {stats['total_requests']}")
+        print(f"Successful: {stats['successful_requests']}")
+        print(f"Failed: {stats['failed_requests']}")
+        print(f"Success rate: {stats['successful_requests']/stats['total_requests']*100:.1f}%")
+        print(f"Average latency: {stats['average_latency']:.3f}s")
+        print(f"Duration: {self.results['metadata']['duration_seconds']:.1f} seconds")
+
+    def run_checks(self):
+        """Run all monitoring checks"""
+        print("Starting Instagram connection monitoring...")
+        
+        # Basic API connectivity
+        print("\n[1] Testing basic API connectivity...")
+        self.make_api_request("me", {'fields': 'id,username'})
+        
+        # Media endpoint
+        print("[2] Testing media endpoint...")
+        self.make_api_request("me/media", {'fields': 'id,media_type,timestamp'})
+        
+        # Permissions check
+        print("[3] Verifying permissions...")
+        self.make_api_request("me/permissions")
+        
+        self.calculate_statistics()
+
+if _name_ == "_main_":
+    try:
+        monitor = InstagramMonitor()
+        monitor.run_checks()
+        monitor.print_summary()
+        monitor.save_results()
+        
+        if monitor.results['statistics']['failed_requests'] > 0:
+            sys.exit(2)  # Exit with warning code if any failures
+            
+    except KeyboardInterrupt:
+        print("\nMonitoring interrupted by user")
+        sys.exit(130)
+    except Exception as e:
+        print(f"Unexpected error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 
 
