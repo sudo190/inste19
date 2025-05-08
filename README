@@ -10,7 +10,7 @@ git clone https://github.com/sudo190/inste19.git
 
 
 cd inste19
-nano inste19.sh
+nano inste19.py
 paste this
 
 
